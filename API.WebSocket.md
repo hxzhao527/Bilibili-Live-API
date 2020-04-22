@@ -11,13 +11,13 @@ Bilibili 直播弹幕 WebSocket 协议
 
 发送和接收的包都是这种格式。
 
-| 偏移 | 长度 | 类型 | 字节序 | 名称 | 说明 |
+| 偏移 | 长度(byte) | 类型 | 字节序 | 名称 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| 0 | 4 | int | Big Endian | Packet Length | 数据包长度 |
-| 4 | 2 | int | Big Endian | Header Length | 数据包头部长度（固定为 `16`） |
-| 6 | 2 | int | Big Endian | Protocol Version | 协议版本（见下文） |
-| 8 | 4 | int | Big Endian | Operation | 操作类型（见下文） |
-| 12 | 4 | int | Big Endian | Sequence Id | 数据包头部长度（固定为 `1`） |
+| 0 | 4 | int32 | Big Endian | Packet Length | 数据包长度 |
+| 4 | 2 | int16 | Big Endian | Header Length | 数据包头部长度（固定为 `16`） |
+| 6 | 2 | int16 | Big Endian | Protocol Version | 协议版本（见下文） |
+| 8 | 4 | int32 | Big Endian | Operation | 操作类型（见下文） |
+| 12 | 4 | int32 | Big Endian | Sequence Id | 数据包头部长度（固定为 `1`） |
 | 16 | - | byte[] | - | Body | 数据内容 |
 
 同一个 `WebSocket Frame` 可能包含多个 `Bilibili 直播数据包`，每个 `Bilibili 直播数据包` 直接首尾相连，数据包长度只表示 `Bilibili 直播数据包` 的长度，并非 `WebSocket Frame` 的长度。
