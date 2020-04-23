@@ -247,3 +247,173 @@ const decode = function (blob) {
   });
 }
 ```
+```go
+package main
+
+import (
+	"bytes"
+	"compress/gzip"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+type ProtocolType int16
+
+const (
+	JSON ProtocolType = iota
+	HOTNUM
+	ZLIB
+)
+
+type OperateType int32
+
+const (
+	HEARTBEAT     OperateType = 2
+	HEARTBEATRESP OperateType = 3
+	NOTICE        OperateType = 5
+	ENTERROOM     OperateType = 7
+	ENTERROOMRESP OperateType = 8
+)
+
+type EnterRoomMsg struct {
+	RoomID int `json:"roomid"`
+}
+type Response struct {
+	Typ  OperateType
+	Data interface{}
+}
+
+const (
+	WSADDRESS  = "ws://broadcastlv.chat.bilibili.com:2244/sub"
+	WSSADDRESS = "wss://broadcastlv.chat.bilibili.com/sub"
+)
+
+const (
+	PACKETHEADLENGTH = 16
+)
+
+func encode(data interface{}, op OperateType) ([]byte, error) {
+	v, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	packetLength := PACKETHEADLENGTH + len(v)
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, int32(packetLength))
+	binary.Write(buf, binary.BigEndian, int16(PACKETHEADLENGTH))
+	binary.Write(buf, binary.BigEndian, int16(JSON))
+	binary.Write(buf, binary.BigEndian, int32(op))
+	binary.Write(buf, binary.BigEndian, int32(1))
+	buf.Write(v)
+	return buf.Bytes(), nil
+}
+
+func unzip(buf io.Reader) ([]byte, error) {
+	tmp, err := gzip.NewReader(buf)
+	if err != nil {
+		return nil, err
+	}
+	defer tmp.Close()
+
+	var ret bytes.Buffer
+	io.Copy(&ret, tmp)
+
+	return ret.Bytes(), nil
+}
+
+func decode(data []byte) (*Response, error) {
+	buf := bytes.NewBuffer(data)
+	var packetLength, operate, dataLength int32
+	var _headLength, protocol int16
+
+	binary.Read(buf, binary.BigEndian, &packetLength)
+	binary.Read(buf, binary.BigEndian, &_headLength)
+	binary.Read(buf, binary.BigEndian, &protocol)
+	binary.Read(buf, binary.BigEndian, &operate)
+	binary.Read(buf, binary.BigEndian, &dataLength)
+
+	switch ProtocolType(protocol) {
+	case JSON:
+		{
+			var ret map[string]interface{}
+			data, err := ioutil.ReadAll(buf)
+			if err != nil {
+				return nil, err
+			}
+			json.Unmarshal(data, &ret)
+
+			return &Response{Typ: OperateType(operate), Data: ret}, nil
+		}
+	case HOTNUM:
+		{
+			var ret int32
+			if err := binary.Read(buf, binary.BigEndian, &ret); err != nil {
+				return nil, err
+			}
+			return &Response{Typ: OperateType(operate), Data: ret}, nil
+		}
+	case ZLIB:
+		{
+			body, err := unzip(buf)
+			if err != nil {
+				return nil, err
+			}
+			return decode(body)
+		}
+	}
+	return nil, fmt.Errorf("unkown")
+}
+
+const (
+	HeartBeatInterval = 30 * time.Second
+)
+
+func main() {
+	client, _, err := websocket.DefaultDialer.Dial(WSADDRESS, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	roomMsg, _ := encode(EnterRoomMsg{RoomID: 751618}, ENTERROOM)
+
+	client.WriteMessage(websocket.BinaryMessage, roomMsg)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for {
+			_, message, err := client.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			msg, err := decode(message)
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			log.Printf("recv: %v\n", msg)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-time.Tick(HeartBeatInterval):
+			HeartBeatMessage, _ := encode(nil, HEARTBEAT)
+			client.WriteMessage(websocket.BinaryMessage, HeartBeatMessage)
+		}
+	}
+
+}
+```
